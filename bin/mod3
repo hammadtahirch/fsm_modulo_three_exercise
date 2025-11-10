@@ -1,0 +1,230 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Mod3 FSM Console Command
+ *
+ * This command provides an interactive way to test the Mod3 State Machine.
+ * It can be used in two modes:
+ * 1. Interactive mode: Run without arguments to enter strings interactively
+ * 2. Direct mode: Pass binary string as argument
+ *
+ * Usage:
+ *   php bin/mod3                    # Interactive mode
+ *   php bin/mod3 "1101"            # Test single string
+ *   php bin/mod3 --demo            # Run demo with examples
+ */
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use FSM\Examples\Mod3StateMachine;
+use FSM\Exceptions\InvalidTransitionException;
+
+class Mod3Command
+{
+    private const COLOR_GREEN = "\033[32m";
+    private const COLOR_RED = "\033[31m";
+    private const COLOR_YELLOW = "\033[33m";
+    private const COLOR_CYAN = "\033[36m";
+    private const COLOR_RESET = "\033[0m";
+    private const COLOR_BOLD = "\033[1m";
+
+    private Mod3StateMachine $machine;
+
+    public function __construct()
+    {
+        $this->machine = Mod3StateMachine::create();
+    }
+
+    public function run(array $argv): void
+    {
+        // Remove script name from arguments
+        array_shift($argv);
+
+        if (empty($argv)) {
+            $this->interactiveMode();
+        } elseif ($argv[0] === '--demo' || $argv[0] === '-d') {
+            $this->demoMode();
+        } elseif ($argv[0] === '--help' || $argv[0] === '-h') {
+            $this->showHelp();
+        } else {
+            $this->testString($argv[0]);
+        }
+    }
+
+    private function interactiveMode(): void
+    {
+        $this->printHeader();
+        $this->println("Interactive Mode - Type binary strings to test (or 'exit' to quit)\n");
+
+        while (true) {
+            $this->print("Enter binary string: ");
+            $input = trim(fgets(STDIN));
+
+            if ($input === 'exit' || $input === 'quit' || $input === 'q') {
+                $this->println("\nGoodbye!");
+                break;
+            }
+
+            if ($input === 'demo') {
+                $this->demoMode();
+                continue;
+            }
+
+            if ($input === '') {
+                $this->testString('');
+            } else {
+                $this->testString($input);
+            }
+
+            $this->println('');
+        }
+    }
+
+    private function demoMode(): void
+    {
+        $this->printHeader();
+        $this->println("Demo Mode - Testing various binary strings\n");
+
+        $testCases = [
+            // Divisible by 3
+            ['input' => '', 'expected' => true, 'decimal' => 0],
+            ['input' => '0', 'expected' => true, 'decimal' => 0],
+            ['input' => '11', 'expected' => true, 'decimal' => 3],
+            ['input' => '110', 'expected' => true, 'decimal' => 6],
+            ['input' => '1001', 'expected' => true, 'decimal' => 9],
+            ['input' => '1100', 'expected' => true, 'decimal' => 12],
+            ['input' => '1111', 'expected' => true, 'decimal' => 15],
+            ['input' => '0011', 'expected' => true, 'decimal' => 3], // Leading zeros
+
+            // Not divisible by 3
+            ['input' => '1', 'expected' => false, 'decimal' => 1],
+            ['input' => '10', 'expected' => false, 'decimal' => 2],
+            ['input' => '100', 'expected' => false, 'decimal' => 4],
+            ['input' => '101', 'expected' => false, 'decimal' => 5],
+            ['input' => '111', 'expected' => false, 'decimal' => 7],
+            ['input' => '1000', 'expected' => false, 'decimal' => 8],
+        ];
+
+        $passed = 0;
+        $failed = 0;
+
+        foreach ($testCases as $test) {
+            $input = $test['input'];
+            $expected = $test['expected'];
+            $decimal = $test['decimal'];
+
+            try {
+                $result = $this->machine->isDivisibleByThree($input);
+                $success = ($result === $expected);
+
+                if ($success) {
+                    $passed++;
+                    $status = $this->colorize('✓ PASS', self::COLOR_GREEN);
+                } else {
+                    $failed++;
+                    $status = $this->colorize('✗ FAIL', self::COLOR_RED);
+                }
+
+                $inputDisplay = $input === '' ? "''" : $input;
+                $resultText = $result ? 'ACCEPT' : 'REJECT';
+                $expectedText = $expected ? 'ACCEPT' : 'REJECT';
+
+                printf(
+                    "%s | Input: %-10s | Decimal: %-3d | Result: %-6s | Expected: %-6s\n",
+                    $status,
+                    $inputDisplay,
+                    $decimal,
+                    $resultText,
+                    $expectedText
+                );
+            } catch (InvalidTransitionException $e) {
+                $failed++;
+                $this->println($this->colorize("✗ ERROR: {$e->getMessage()}", self::COLOR_RED));
+            }
+        }
+
+        $this->println("\n" . str_repeat('=', 70));
+        $this->println(sprintf(
+            "Results: %s | %s",
+            $this->colorize("$passed passed", self::COLOR_GREEN),
+            $failed > 0 ? $this->colorize("$failed failed", self::COLOR_RED) : "$failed failed"
+        ));
+    }
+
+    private function testString(string $input): void
+    {
+        try {
+            $result = $this->machine->isDivisibleByThree($input);
+            $decimal = $input === '' ? 0 : bindec($input);
+
+            $inputDisplay = $input === '' ? "''" : $input;
+
+            if ($result) {
+                $this->println(sprintf(
+                    "%s Binary: %s → Decimal: %d → %s",
+                    $this->colorize('✓', self::COLOR_GREEN),
+                    $this->colorize($inputDisplay, self::COLOR_CYAN),
+                    $decimal,
+                    $this->colorize('DIVISIBLE by 3', self::COLOR_GREEN)
+                ));
+            } else {
+                $this->println(sprintf(
+                    "%s Binary: %s → Decimal: %d → %s (remainder: %d)",
+                    $this->colorize('✗', self::COLOR_RED),
+                    $this->colorize($inputDisplay, self::COLOR_CYAN),
+                    $decimal,
+                    $this->colorize('NOT divisible by 3', self::COLOR_RED),
+                    $decimal % 3
+                ));
+            }
+        } catch (InvalidTransitionException $e) {
+            $this->println($this->colorize("ERROR: {$e->getMessage()}", self::COLOR_RED));
+        }
+    }
+
+    private function printHeader(): void
+    {
+        $this->println("\n" . str_repeat('=', 70));
+        $this->println($this->colorize("  Mod3 Finite State Machine", self::COLOR_BOLD . self::COLOR_CYAN));
+        $this->println($this->colorize("  Binary Divisibility by 3 Checker", self::COLOR_CYAN));
+        $this->println(str_repeat('=', 70) . "\n");
+    }
+
+    private function showHelp(): void
+    {
+        $this->println("\n" . $this->colorize("Mod3 FSM - Usage", self::COLOR_BOLD));
+        $this->println("\nA Finite State Machine that checks if binary numbers are divisible by 3.\n");
+        $this->println("Usage:");
+        $this->println("  php bin/mod3                  Interactive mode");
+        $this->println("  php bin/mod3 <binary>         Test a specific binary string");
+        $this->println("  php bin/mod3 --demo           Run demo with test cases");
+        $this->println("  php bin/mod3 --help           Show this help message");
+        $this->println("\nExamples:");
+        $this->println("  php bin/mod3 \"110\"            # Tests if 110 (6) is divisible by 3");
+        $this->println("  php bin/mod3 \"1001\"           # Tests if 1001 (9) is divisible by 3");
+        $this->println("");
+    }
+
+    private function colorize(string $text, string $color): string
+    {
+        return $color . $text . self::COLOR_RESET;
+    }
+
+    private function print(string $message): void
+    {
+        echo $message;
+    }
+
+    private function println(string $message): void
+    {
+        echo $message . PHP_EOL;
+    }
+}
+
+// Run the command
+$command = new Mod3Command();
+$command->run($argv);
+
